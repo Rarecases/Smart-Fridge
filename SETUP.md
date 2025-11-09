@@ -10,8 +10,8 @@ The OpenAI API key has been configured in `.dev.vars` for local development.
 
 #### Current Configuration:
 ```
-OPENAI_API_KEY=sk-proj-BGzNP-... (configured)
-SESSION_SECRET=dev-secret-key-... (configured)
+OPENAI_API_KEY=REDACTED (configured)
+SESSION_SECRET=REDACTED (configured)
 NODE_ENV=development
 ```
 
@@ -56,20 +56,12 @@ pm2 logs webapp --nostream
 # Create a test user
 curl -X POST http://localhost:3000/api/auth/signup \
   -H "Content-Type: application/json" \
-  -d '{
-    "email": "test@example.com",
-    "password": "test123",
-    "name": "Test User",
-    "dietaryPreferences": "vegetarian,keto"
-  }'
+  -d '{\n    "email": "test@example.com",\n    "password": "test123",\n    "name": "Test User",\n    "dietaryPreferences": "vegetarian,keto"\n  }'
 
 # Login
 curl -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{
-    "email": "test@example.com",
-    "password": "test123"
-  }'
+  -d '{\n    "email": "test@example.com",\n    "password": "test123"\n  }'
 ```
 
 ### 4. Test AI Ingredient Detection
@@ -137,7 +129,7 @@ npm run db:migrate:prod
 ```bash
 # Set OpenAI API key
 npx wrangler pages secret put OPENAI_API_KEY --project-name webapp
-# When prompted, paste your OpenAI API key (starts with sk-proj- or sk-)
+# When prompted, paste your OpenAI API key
 
 # Set session secret (use a strong random value)
 npx wrangler pages secret put SESSION_SECRET --project-name webapp
@@ -258,10 +250,10 @@ npm run clean-port
 
 ```bash
 # OpenAI API Key
-OPENAI_API_KEY=sk-proj-...
+OPENAI_API_KEY=REDACTED
 
 # Session Secret (change in production)
-SESSION_SECRET=your-secret-key
+SESSION_SECRET=REDACTED
 
 # Environment
 NODE_ENV=development
