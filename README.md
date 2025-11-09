@@ -1,88 +1,150 @@
 # Smart Fridge & Culinary Assistant
 
-A modern, mobile-friendly cooking assistant app that uses AI to identify ingredients from fridge photos and suggests personalized recipes with step-by-step cooking guidance.
+A modern, AI-powered cooking assistant app with user authentication, real ingredient detection using OpenAI Vision, and stunning animated UI.
 
 ## 🌟 Project Overview
 
 **Name**: Smart Fridge & Culinary Assistant  
-**Goal**: Help users discover recipes based on available ingredients, with hands-free cooking guidance  
-**Tech Stack**: Hono + TypeScript + TailwindCSS + Cloudflare Pages
+**Goal**: Help users discover recipes based on available ingredients with AI-powered ingredient detection and personalized recommendations  
+**Tech Stack**: Hono + TypeScript + TailwindCSS + Cloudflare Pages + D1 Database + OpenAI Vision API
 
 ## 🔗 URLs
 
 - **Development**: https://3000-i072642sxkn0a8bjo1lju-a402f90a.sandbox.novita.ai
 - **API Endpoints**:
-  - `POST /api/analyze-fridge` - Analyze fridge photos to identify ingredients
-  - `POST /api/get-recipes` - Get recipe suggestions based on ingredients and dietary filters
+  - `POST /api/auth/signup` - Create new user account
+  - `POST /api/auth/login` - User login
+  - `POST /api/auth/logout` - User logout
+  - `GET /api/auth/me` - Get current user
+  - `POST /api/analyze-fridge` - Analyze fridge photos with OpenAI Vision
+  - `POST /api/get-recipes` - Get recipe suggestions with filtering
+  - `POST /api/recipes/save` - Save favorite recipes
+  - `GET /api/recipes/saved` - Get user's saved recipes
 
 ## ✨ Completed Features
 
-### 1. **Fridge Photo Analysis** 📸
-- Upload or capture fridge photos directly from mobile camera
-- AI-powered ingredient detection (simulated - ready for production AI integration)
-- Visual display of detected ingredients with chips/badges
+### 🔐 **Authentication System**
+- **User Signup & Login** with secure password hashing
+- **Session-based authentication** using HTTP-only cookies
+- **User profiles** with dietary preferences
+- **Protected routes** for authenticated users
+- **Persistent sessions** (30-day expiration)
+- **Logout functionality** with session cleanup
 
-### 2. **Intelligent Recipe Suggestions** 🍳
-- 8+ diverse recipes with comprehensive information:
-  - Recipe name and emoji icon
-  - Difficulty level (Easy/Medium/Hard) with color coding
-  - Preparation time
-  - Calorie count
-  - Servings
-  - Dietary labels (vegetarian, vegan, keto, paleo, gluten-free, low-carb)
-  - Missing ingredients indicator
-  - Match score sorting (recipes with more available ingredients appear first)
+### 🤖 **AI-Powered Ingredient Detection**
+- **OpenAI Vision API integration** for real ingredient recognition
+- **Smart image analysis** that identifies food items in fridge photos
+- **Fallback to simulated data** if API key not configured
+- **Detailed ingredient list** with visual chips/badges
+- **Support for various image formats** (JPG, PNG, HEIC)
 
-### 3. **Advanced Dietary Filters** 🥗
-- Real-time filtering by dietary restrictions:
+### 🎨 **Enhanced UI/UX**
+- **Glassmorphism effects** with backdrop blur
+- **Gradient animations** on headers and buttons
+- **Smooth transitions** and microinteractions
+- **Floating animations** for icons and elements
+- **Hover effects** with 3D transforms
+- **Shimmer effects** on buttons
+- **Pulse animations** for active elements
+- **Toast notifications** with slide-in animations
+- **Loading states** with spinners
+- **Custom scrollbar** with gradient
+- **Responsive animations** that respect user preferences
+
+### 📱 **Mobile-First Design**
+- **Tab navigation** for mobile (Scan / Recipes / Filters)
+- **Touch-optimized** buttons and controls
+- **Camera capture** support for mobile devices
+- **Responsive grid layouts** adapting to all screen sizes
+- **Portrait and landscape** optimization
+- **Swipe-friendly** interfaces
+
+### 🍳 **Recipe Features**
+- **8+ diverse recipes** with comprehensive information
+- **Smart filtering** by dietary restrictions:
   - 🥬 Vegetarian
   - 🌱 Vegan
   - 🥑 Keto
   - 🥩 Paleo
   - 🌾 Gluten-Free
   - ⚡ Low-Carb
-- Clear all filters button
-- Filters persist during recipe refresh
+- **Match score sorting** - recipes with more available ingredients rank higher
+- **Missing ingredients indicator** with badge count
+- **Save favorite recipes** (authenticated users)
+- **Dietary preference sync** from user profile
+- **Color-coded difficulty** levels (Easy/Medium/Hard)
+- **Calorie counts** and servings information
+- **Preparation time** estimates
 
-### 4. **Step-by-Step Cooking Mode** 👨‍🍳
-- Large, easy-to-read cooking instructions
-- Visual step progress with numbered indicators
-- Current step highlighted with blue border and background
-- Previous/Next navigation buttons
-- Completion confirmation dialog
-- Recipe information display (prep time, calories, servings)
+### 👨‍🍳 **Cooking Mode**
+- **Step-by-step instructions** with visual progress
+- **Active step highlighting** with blue border and background
+- **Previous/Next navigation** buttons
+- **Text-to-speech integration** for hands-free cooking
+- **Toggle play/stop** for voice guidance
+- **Recipe information display** (time, calories, servings)
+- **Completion confirmation** dialog
+- **Missing ingredients alert** with one-click shopping list
 
-### 5. **Text-to-Speech (Hands-Free Cooking)** 🔊
-- Read aloud button for each cooking step
-- Toggle between reading and stopping
-- Adjustable speech rate and pitch
-- Perfect for hands-free cooking when hands are dirty
+### 🛒 **Shopping List**
+- **One-click addition** of missing ingredients
+- **Persistent storage** using localStorage
+- **Badge counter** on cart icon
+- **Individual item removal**
+- **Clear all functionality**
+- **Modal interface** with smooth animations
+- **Auto-save** on every change
 
-### 6. **Shopping List Management** 🛒
-- One-click addition of missing ingredients
-- Persistent storage using localStorage
-- Shopping cart badge with item count
-- Remove individual items
-- Clear all items functionality
-- Modal interface for list management
-
-### 7. **Mobile-Optimized Design** 📱
-- Responsive design that works on all screen sizes
-- Mobile tab navigation (Scan / Recipes / Filters)
-- Touch-friendly buttons and controls
-- Camera capture support for mobile devices
-- Optimized layouts for portrait and landscape modes
-- Hover effects on desktop, tap effects on mobile
-
-### 8. **User Experience Enhancements** ✨
-- Smooth animations and transitions
-- Color-coded difficulty levels (green/orange/red)
-- Recipe cards with hover effects
-- Modal overlays for cooking mode and shopping list
-- Success notifications for actions
-- Empty state messages with helpful icons
+### 👤 **User Profile**
+- **Profile modal** with user information
+- **Avatar with animated ring**
+- **Dietary preferences display**
+- **Logout button**
+- **Saved recipes count** (coming soon)
+- **Cooking history** (coming soon)
 
 ## 📊 Data Architecture
+
+### Database Schema (Cloudflare D1)
+
+```sql
+-- Users table
+users (
+  id INTEGER PRIMARY KEY,
+  email TEXT UNIQUE,
+  password_hash TEXT,
+  name TEXT,
+  dietary_preferences TEXT,
+  created_at DATETIME,
+  last_login DATETIME
+)
+
+-- Sessions table
+sessions (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER,
+  session_token TEXT UNIQUE,
+  expires_at DATETIME,
+  created_at DATETIME
+)
+
+-- Saved recipes table
+saved_recipes (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER,
+  recipe_id INTEGER,
+  created_at DATETIME
+)
+
+-- Cooking history table
+cooking_history (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER,
+  recipe_id INTEGER,
+  completed BOOLEAN,
+  cooked_at DATETIME
+)
+```
 
 ### Recipe Data Model
 ```javascript
@@ -103,62 +165,77 @@ A modern, mobile-friendly cooking assistant app that uses AI to identify ingredi
 ```
 
 ### Storage Services
-- **Frontend LocalStorage**: Shopping list persistence
+- **Cloudflare D1 Database**: User accounts, sessions, saved recipes
+- **LocalStorage**: Shopping list persistence
+- **HTTP-only Cookies**: Session tokens
 - **In-Memory State**: Current ingredients, recipes, cooking session
-- **Future**: Ready for Cloudflare D1 database integration for user preferences and recipe history
 
 ## 🎯 User Guide
 
 ### Getting Started
-1. **Upload a Fridge Photo**
-   - Click the upload area or tap on mobile
-   - Take a new photo or choose from gallery
-   - Wait for the image to load
 
-2. **Analyze Ingredients**
-   - Click "Analyze Ingredients" button
-   - View detected ingredients as green chips
-   - Automatically see recipe suggestions
+#### 1. **Create an Account**
+- Click "Sign Up" on the welcome screen
+- Enter your name, email, and password
+- Optionally select dietary preferences
+- Click "Create Account"
 
-3. **Filter Recipes** (Optional)
-   - Use the sidebar filters (desktop) or Filters tab (mobile)
-   - Select dietary restrictions that apply
-   - Recipes update automatically
+#### 2. **Login**
+- Enter your email and password
+- Click "Login"
+- Session persists for 30 days
 
-4. **Choose a Recipe**
-   - Browse recipe cards with difficulty, time, and calorie info
-   - Yellow badge shows missing ingredients count
-   - Green badge indicates all ingredients available
-   - Click "Start Cooking" on any recipe
+#### 3. **Scan Your Fridge**
+- Click the upload area
+- Take a photo or select from gallery
+- Click "Analyze Ingredients"
+- AI will detect ingredients using OpenAI Vision
 
-5. **Cook with Step-by-Step Mode**
-   - Follow numbered instructions
-   - Current step highlighted in blue
-   - Click "Read Aloud" for hands-free guidance
-   - Use Previous/Next buttons to navigate
-   - Add missing ingredients to shopping list
+#### 4. **Browse Recipes**
+- View personalized recipe suggestions
+- Recipes sorted by ingredient match
+- Yellow badge shows missing ingredients
+- Green badge means all ingredients available
+- Star icon to save favorites
 
-6. **Manage Shopping List**
-   - Click shopping cart icon in header
-   - View all items you need to buy
-   - Remove items individually
-   - Clear entire list when done shopping
+#### 5. **Filter by Diet**
+- Use sidebar filters (desktop)
+- Or Filters tab (mobile)
+- Select dietary restrictions
+- Recipes update in real-time
 
-### Mobile Usage Tips
-- Use tab navigation at top: Scan | Recipes | Filters
-- Swipe through tabs for quick access
-- Hold phone in portrait mode for best experience
-- Use voice guidance when hands are occupied
+#### 6. **Start Cooking**
+- Click "Start Cooking" on any recipe
+- Follow step-by-step instructions
+- Current step highlighted in blue
+- Use "Read Aloud" for voice guidance
+- Navigate with Previous/Next buttons
+
+#### 7. **Shopping List**
+- Click shopping cart icon
+- Add missing ingredients
+- View and manage items
+- Clear when done shopping
+
+#### 8. **Profile Management**
+- Click profile icon in header
+- View your information
+- See dietary preferences
+- Logout when needed
 
 ## 🚀 Deployment
 
 ### Current Status
-✅ **Active** - Development server running on sandbox
+✅ **Active** - Running on development sandbox with D1 database
 
 ### Local Development
+
 ```bash
 # Install dependencies
 npm install
+
+# Apply database migrations
+npm run db:migrate:local
 
 # Build the project
 npm run build
@@ -173,106 +250,193 @@ pm2 logs webapp --nostream
 pm2 delete webapp
 ```
 
+### Environment Setup
+
+Create `.dev.vars` file (not committed to git):
+```bash
+# OpenAI API Key for ingredient detection
+OPENAI_API_KEY=sk-your-api-key-here
+
+# Session secret for JWT tokens
+SESSION_SECRET=your-random-secret-key
+
+# Environment
+NODE_ENV=development
+```
+
 ### Production Deployment to Cloudflare Pages
 
+#### 1. Set up Cloudflare API Key
 ```bash
-# Build for production
-npm run build
+# Call setup_cloudflare_api_key in the sandbox
+# Or set CLOUDFLARE_API_TOKEN environment variable
+```
 
-# Deploy to Cloudflare
+#### 2. Create D1 Database
+```bash
+# Create production database
+npx wrangler d1 create webapp-production
+
+# Update wrangler.jsonc with database_id
+# Apply migrations
+npm run db:migrate:prod
+```
+
+#### 3. Set Secrets
+```bash
+# Set OpenAI API key
+npx wrangler pages secret put OPENAI_API_KEY --project-name webapp
+
+# Set session secret
+npx wrangler pages secret put SESSION_SECRET --project-name webapp
+```
+
+#### 4. Deploy
+```bash
+# Build and deploy
 npm run deploy:prod
 
-# Or use wrangler directly
-wrangler pages deploy dist --project-name webapp
+# Or manually
+npm run build
+npx wrangler pages deploy dist --project-name webapp
 ```
+
+## 🎨 UI/UX Design Features
+
+### Visual Effects
+- **Glassmorphism**: Frosted glass effect with backdrop blur
+- **Gradient Animations**: Animated color transitions on backgrounds
+- **Floating Elements**: Gentle up-down motion for icons
+- **Shimmer Effects**: Light sweep across buttons on hover
+- **Pulse Animations**: Breathing effect for active elements
+- **3D Transforms**: Rotate and lift on hover
+- **Smooth Transitions**: Easing functions for natural motion
+
+### Color Palette
+- **Primary Gradient**: Blue (#667eea) to Purple (#764ba2)
+- **Success**: Green (#10b981) to Emerald (#34d399)
+- **Warning**: Yellow (#f59e0b) to Orange (#fbbf24)
+- **Error**: Red (#ef4444) to Pink (#f87171)
+- **Background**: Indigo/Purple/Pink gradient mesh
+
+### Typography
+- **Headers**: Bold, gradient text with glow effects
+- **Body**: Clean, readable sans-serif
+- **Interactive**: Medium weight with hover animations
 
 ## 🔮 Future Enhancements
 
 ### High Priority
-1. **Real AI Integration** 🤖
-   - Connect to OpenAI Vision API or Google Cloud Vision
-   - Implement actual ingredient recognition from photos
-   - Train model on fridge/pantry images
+1. **Advanced AI Features**
+   - Better ingredient recognition accuracy
+   - Portion size estimation
+   - Expiration date detection
+   - Recipe generation from scratch
 
-2. **User Accounts & Profiles** 👤
-   - Save favorite recipes
-   - Track cooking history
-   - Personalized recommendations
-   - Dietary preference storage
+2. **Social Features**
+   - Share recipes with friends
+   - Community recipe contributions
+   - Rating and review system
+   - Cooking challenges
 
-3. **Recipe Database** 📚
-   - Expand to 100+ recipes
-   - User-contributed recipes
-   - Recipe ratings and reviews
-   - Cooking tips and variations
+3. **Extended Recipe Database**
+   - 100+ professional recipes
+   - Video tutorials
+   - Chef tips and variations
+   - Nutritional analysis
 
 ### Medium Priority
-4. **Advanced Features** 🎨
-   - Recipe search by name
-   - Ingredient substitution suggestions
+4. **Smart Features**
    - Meal planning calendar
-   - Nutrition facts breakdown
+   - Weekly meal prep suggestions
+   - Leftover management
+   - Kitchen inventory tracking
+
+5. **Integrations**
+   - Grocery delivery APIs
+   - Smart appliance connectivity
+   - Fitness app sync
+   - Calendar integration
+
+6. **Enhanced User Experience**
+   - Recipe search by name
+   - Advanced filters (cuisine, cooking time)
+   - Ingredient substitutions
    - Print recipe cards
 
-5. **Social Features** 👥
-   - Share recipes via link
-   - Social media integration
-   - Cooking challenges
-   - Community recipe collection
-
-6. **Smart Features** 🧠
-   - Timer integration for cooking steps
-   - Video tutorials for complex steps
-   - Kitchen equipment checker
-   - Ingredient expiration tracking
-
 ### Low Priority
-7. **Integrations** 🔌
-   - Grocery delivery API integration
-   - Smart appliance connectivity
-   - Meal kit service partnerships
-   - Restaurant reservation links
+7. **Analytics & Insights**
+   - Cooking statistics
+   - Popular recipes
+   - Dietary goal tracking
+   - Cost analysis
 
 ## 🛠️ Technical Details
 
 ### Frontend Technologies
-- **TailwindCSS**: Utility-first CSS framework via CDN
-- **Font Awesome**: Icon library for UI elements
-- **Axios**: HTTP client for API requests
-- **Web Speech API**: Text-to-speech functionality
-- **LocalStorage API**: Client-side data persistence
+- **TailwindCSS**: Utility-first CSS with custom animations
+- **Custom CSS**: Advanced animations, glassmorphism, gradients
+- **Font Awesome**: Icon library
+- **Axios**: HTTP client
+- **Web Speech API**: Text-to-speech
+- **LocalStorage API**: Client-side persistence
 
 ### Backend Technologies
-- **Hono**: Lightweight web framework for Cloudflare Workers
+- **Hono**: Lightweight web framework
+- **Cloudflare Workers**: Edge runtime
+- **Cloudflare D1**: SQLite database
 - **TypeScript**: Type-safe development
 - **Vite**: Fast build tool
-- **Wrangler**: Cloudflare deployment CLI
+- **Wrangler**: Cloudflare CLI
 
-### API Architecture
-- RESTful API design
-- JSON request/response format
-- CORS enabled for cross-origin requests
-- Simulated AI responses (ready for production AI)
+### AI Integration
+- **OpenAI GPT-4O-mini Vision**: Image analysis
+- **Custom prompts**: Optimized for food detection
+- **Fallback system**: Graceful degradation without API key
 
-### Responsive Design
-- Mobile-first approach
-- Breakpoints: sm (640px), md (768px), lg (1024px)
-- Flexbox and Grid layouts
-- Touch-optimized interactions
+### Security
+- **Password hashing**: SHA-256 (upgrade to bcrypt recommended)
+- **HTTP-only cookies**: Prevent XSS attacks
+- **Session expiration**: 30-day limit
+- **CORS enabled**: Secure cross-origin requests
+- **Input validation**: Server-side checks
+
+### Performance
+- **Edge deployment**: Global CDN distribution
+- **Lazy loading**: On-demand resource loading
+- **Optimized images**: Efficient encoding
+- **Minimal bundle**: Small Worker size
+- **Database indexes**: Fast queries
 
 ## 📝 Recent Updates
 
-**2025-01-09**: Initial release
-- ✅ Complete fridge scanning interface
-- ✅ AI ingredient detection (simulated)
-- ✅ 8 diverse recipes with full details
-- ✅ Dietary filtering system
-- ✅ Step-by-step cooking mode
-- ✅ Text-to-speech integration
-- ✅ Shopping list management
-- ✅ Full mobile responsiveness
-- ✅ Git repository initialized
-- ✅ Deployed to development sandbox
+**2025-01-09**: Major update with authentication and enhanced UI
+- ✅ User authentication system with D1 database
+- ✅ OpenAI Vision API integration
+- ✅ Complete UI overhaul with animations
+- ✅ Glassmorphism and gradient effects
+- ✅ User profiles and saved recipes
+- ✅ Session management with cookies
+- ✅ Enhanced mobile responsiveness
+- ✅ Advanced CSS animations
+- ✅ Toast notifications
+- ✅ Dietary preference sync
+
+## 🔑 API Key Configuration
+
+To enable real AI ingredient detection:
+
+1. Get an OpenAI API key from https://platform.openai.com/api-keys
+2. Update `.dev.vars` file (local development):
+   ```
+   OPENAI_API_KEY=sk-your-actual-key-here
+   ```
+3. For production, set as Cloudflare secret:
+   ```bash
+   npx wrangler pages secret put OPENAI_API_KEY --project-name webapp
+   ```
+
+Without an API key, the app falls back to simulated ingredient detection.
 
 ## 🤝 Contributing
 
@@ -285,8 +449,13 @@ To contribute to this project:
 
 ## 📄 License
 
-This project is ready for production use with proper AI API integration.
+This project is ready for production use with proper API integration and security hardening.
 
 ---
 
-**Built with ❤️ using Hono, TypeScript, and Cloudflare Pages**
+**Built with ❤️ using Hono, TypeScript, Cloudflare Pages, D1 Database, and OpenAI Vision API**
+
+🎨 **Designed with modern UI/UX principles**  
+🔒 **Secured with authentication and session management**  
+🤖 **Powered by AI for intelligent ingredient detection**  
+📱 **Optimized for mobile and desktop**
