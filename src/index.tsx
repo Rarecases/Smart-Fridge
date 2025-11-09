@@ -1,44 +1,336 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { serveStatic } from 'hono/cloudflare-workers'
+import { setCookie, getCookie, deleteCookie } from 'hono/cookie'
 
-const app = new Hono()
+type Bindings = {
+  DB: D1Database
+  OPENAI_API_KEY: string
+  SESSION_SECRET: string
+}
+
+const app = new Hono<{ Bindings: Bindings }>()
 
 // Enable CORS for API routes
 app.use('/api/*', cors())
 
-// Serve static files from public directory
+// Serve static files
 app.use('/static/*', serveStatic({ root: './public' }))
 
-// API route to analyze fridge image and identify ingredients
+// ==================== AUTHENTICATION ROUTES ====================
+
+// Signup endpoint
+app.post('/api/auth/signup', async (c) => {
+  try {
+    const { email, password, name, dietaryPreferences } = await c.req.json()
+    
+    // Validate input
+    if (!email || !password || !name) {
+      return c.json({ success: false, error: 'Missing required fields' }, 400)
+    }
+    
+    // Simple password hashing (in production, use bcrypt or similar)
+    const passwordHash = await hashPassword(password)
+    
+    // Check if user exists
+    const existing = await c.env.DB.prepare(
+      'SELECT id FROM users WHERE email = ?'
+    ).bind(email).first()
+    
+    if (existing) {
+      return c.json({ success: false, error: 'Email already registered' }, 409)
+    }
+    
+    // Create user
+    const result = await c.env.DB.prepare(
+      'INSERT INTO users (email, password_hash, name, dietary_preferences) VALUES (?, ?, ?, ?)'
+    ).bind(email, passwordHash, name, dietaryPreferences || '').run()
+    
+    const userId = result.meta.last_row_id
+    
+    // Create session
+    const sessionToken = generateToken()
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
+    
+    await c.env.DB.prepare(
+      'INSERT INTO sessions (user_id, session_token, expires_at) VALUES (?, ?, ?)'
+    ).bind(userId, sessionToken, expiresAt.toISOString()).run()
+    
+    // Set cookie
+    setCookie(c, 'session_token', sessionToken, {
+      maxAge: 30 * 24 * 60 * 60,
+      httpOnly: true,
+      secure: true,
+      sameSite: 'Lax'
+    })
+    
+    return c.json({
+      success: true,
+      user: { id: userId, email, name, dietaryPreferences }
+    })
+  } catch (error) {
+    console.error('Signup error:', error)
+    return c.json({ success: false, error: 'Failed to create account' }, 500)
+  }
+})
+
+// Login endpoint
+app.post('/api/auth/login', async (c) => {
+  try {
+    const { email, password } = await c.req.json()
+    
+    if (!email || !password) {
+      return c.json({ success: false, error: 'Missing credentials' }, 400)
+    }
+    
+    // Find user
+    const user = await c.env.DB.prepare(
+      'SELECT id, email, name, password_hash, dietary_preferences FROM users WHERE email = ?'
+    ).bind(email).first() as any
+    
+    if (!user) {
+      return c.json({ success: false, error: 'Invalid credentials' }, 401)
+    }
+    
+    // Verify password
+    const passwordMatch = await verifyPassword(password, user.password_hash)
+    if (!passwordMatch) {
+      return c.json({ success: false, error: 'Invalid credentials' }, 401)
+    }
+    
+    // Update last login
+    await c.env.DB.prepare(
+      'UPDATE users SET last_login = ? WHERE id = ?'
+    ).bind(new Date().toISOString(), user.id).run()
+    
+    // Create session
+    const sessionToken = generateToken()
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+    
+    await c.env.DB.prepare(
+      'INSERT INTO sessions (user_id, session_token, expires_at) VALUES (?, ?, ?)'
+    ).bind(user.id, sessionToken, expiresAt.toISOString()).run()
+    
+    // Set cookie
+    setCookie(c, 'session_token', sessionToken, {
+      maxAge: 30 * 24 * 60 * 60,
+      httpOnly: true,
+      secure: true,
+      sameSite: 'Lax'
+    })
+    
+    return c.json({
+      success: true,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        dietaryPreferences: user.dietary_preferences
+      }
+    })
+  } catch (error) {
+    console.error('Login error:', error)
+    return c.json({ success: false, error: 'Failed to login' }, 500)
+  }
+})
+
+// Logout endpoint
+app.post('/api/auth/logout', async (c) => {
+  try {
+    const sessionToken = getCookie(c, 'session_token')
+    
+    if (sessionToken) {
+      await c.env.DB.prepare(
+        'DELETE FROM sessions WHERE session_token = ?'
+      ).bind(sessionToken).run()
+    }
+    
+    deleteCookie(c, 'session_token')
+    
+    return c.json({ success: true })
+  } catch (error) {
+    return c.json({ success: false, error: 'Failed to logout' }, 500)
+  }
+})
+
+// Get current user
+app.get('/api/auth/me', async (c) => {
+  try {
+    const sessionToken = getCookie(c, 'session_token')
+    
+    if (!sessionToken) {
+      return c.json({ success: false, authenticated: false }, 401)
+    }
+    
+    // Find session
+    const session = await c.env.DB.prepare(
+      'SELECT user_id, expires_at FROM sessions WHERE session_token = ?'
+    ).bind(sessionToken).first() as any
+    
+    if (!session || new Date(session.expires_at) < new Date()) {
+      deleteCookie(c, 'session_token')
+      return c.json({ success: false, authenticated: false }, 401)
+    }
+    
+    // Get user
+    const user = await c.env.DB.prepare(
+      'SELECT id, email, name, dietary_preferences FROM users WHERE id = ?'
+    ).bind(session.user_id).first() as any
+    
+    return c.json({
+      success: true,
+      authenticated: true,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        dietaryPreferences: user.dietary_preferences
+      }
+    })
+  } catch (error) {
+    return c.json({ success: false, authenticated: false }, 500)
+  }
+})
+
+// ==================== RECIPE ROUTES ====================
+
+// Save recipe
+app.post('/api/recipes/save', async (c) => {
+  try {
+    const user = await getAuthenticatedUser(c)
+    if (!user) {
+      return c.json({ success: false, error: 'Not authenticated' }, 401)
+    }
+    
+    const { recipeId } = await c.req.json()
+    
+    await c.env.DB.prepare(
+      'INSERT OR IGNORE INTO saved_recipes (user_id, recipe_id) VALUES (?, ?)'
+    ).bind(user.id, recipeId).run()
+    
+    return c.json({ success: true })
+  } catch (error) {
+    return c.json({ success: false, error: 'Failed to save recipe' }, 500)
+  }
+})
+
+// Get saved recipes
+app.get('/api/recipes/saved', async (c) => {
+  try {
+    const user = await getAuthenticatedUser(c)
+    if (!user) {
+      return c.json({ success: false, error: 'Not authenticated' }, 401)
+    }
+    
+    const saved = await c.env.DB.prepare(
+      'SELECT recipe_id FROM saved_recipes WHERE user_id = ? ORDER BY created_at DESC'
+    ).bind(user.id).all()
+    
+    return c.json({
+      success: true,
+      recipeIds: saved.results.map((r: any) => r.recipe_id)
+    })
+  } catch (error) {
+    return c.json({ success: false, error: 'Failed to get saved recipes' }, 500)
+  }
+})
+
+// ==================== INGREDIENT ANALYSIS ====================
+
+// Analyze fridge image with OpenAI Vision
 app.post('/api/analyze-fridge', async (c) => {
   try {
     const { imageData } = await c.req.json()
     
-    // Simulated AI ingredient detection
-    // In production, this would call an AI vision API
-    const ingredients = [
-      'eggs', 'milk', 'tomatoes', 'chicken breast', 'lettuce',
-      'cheese', 'onions', 'garlic', 'bell peppers', 'carrots',
-      'butter', 'bread', 'yogurt', 'spinach', 'mushrooms'
-    ]
+    // Check if OpenAI API key is configured
+    const apiKey = c.env.OPENAI_API_KEY
+    if (!apiKey || apiKey === 'your-openai-api-key-here') {
+      // Fallback to simulated data if no API key
+      return c.json({
+        success: true,
+        ingredients: [
+          'eggs', 'milk', 'tomatoes', 'chicken breast', 'lettuce',
+          'cheese', 'onions', 'garlic', 'bell peppers', 'carrots',
+          'butter', 'bread', 'yogurt', 'spinach', 'mushrooms'
+        ],
+        message: 'Using simulated data (OpenAI API key not configured)'
+      })
+    }
+    
+    // Call OpenAI Vision API
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: 'You are a food recognition AI. Analyze this image of a refrigerator and list all visible food ingredients. Return ONLY a JSON array of ingredient names, nothing else. Example: ["eggs", "milk", "cheese"]. Be specific and only include items you can clearly see.'
+              },
+              {
+                type: 'image_url',
+                image_url: { url: imageData }
+              }
+            ]
+          }
+        ],
+        max_tokens: 500
+      })
+    })
+    
+    if (!response.ok) {
+      throw new Error(`OpenAI API error: ${response.statusText}`)
+    }
+    
+    const data = await response.json() as any
+    const content = data.choices[0]?.message?.content || '[]'
+    
+    // Parse the JSON array from the response
+    let ingredients: string[]
+    try {
+      ingredients = JSON.parse(content)
+    } catch {
+      // If parsing fails, extract ingredients from text
+      ingredients = content.match(/"([^"]+)"/g)?.map((s: string) => s.replace(/"/g, '')) || []
+    }
     
     return c.json({
       success: true,
-      ingredients: ingredients,
-      message: 'Successfully identified ingredients'
+      ingredients,
+      message: 'Successfully identified ingredients using OpenAI Vision'
     })
   } catch (error) {
-    return c.json({ success: false, error: 'Failed to analyze image' }, 500)
+    console.error('Error analyzing fridge:', error)
+    return c.json({ 
+      success: false, 
+      error: 'Failed to analyze image. Please check your OpenAI API key.' 
+    }, 500)
   }
 })
 
-// API route to get recipe suggestions based on ingredients and filters
+// Get recipe suggestions
 app.post('/api/get-recipes', async (c) => {
   try {
     const { ingredients, dietaryRestrictions } = await c.req.json()
     
-    // Sample recipe database with comprehensive information
+    // Get user preferences if authenticated
+    const user = await getAuthenticatedUser(c)
+    let userPreferences: string[] = []
+    if (user && user.dietaryPreferences) {
+      userPreferences = user.dietaryPreferences.split(',').map((p: string) => p.trim())
+    }
+    
+    // Merge with requested filters
+    const allFilters = [...new Set([...dietaryRestrictions, ...userPreferences])]
+    
+    // Sample recipe database
     const allRecipes = [
       {
         id: 1,
@@ -198,7 +490,7 @@ app.post('/api/get-recipes', async (c) => {
       }
     ]
     
-    // Filter recipes based on available ingredients
+    // Filter recipes
     const matchingRecipes = allRecipes.filter(recipe => {
       const hasIngredients = recipe.ingredients.some(ing => 
         ingredients.some((userIng: string) => 
@@ -207,9 +499,8 @@ app.post('/api/get-recipes', async (c) => {
         )
       )
       
-      // Filter by dietary restrictions if provided
-      if (dietaryRestrictions && dietaryRestrictions.length > 0) {
-        const matchesDiet = dietaryRestrictions.some((diet: string) => 
+      if (allFilters && allFilters.length > 0) {
+        const matchesDiet = allFilters.some((diet: string) => 
           recipe.dietary.includes(diet.toLowerCase())
         )
         return hasIngredients && matchesDiet
@@ -218,7 +509,7 @@ app.post('/api/get-recipes', async (c) => {
       return hasIngredients
     })
     
-    // Calculate missing ingredients for each recipe
+    // Calculate missing ingredients
     const recipesWithMissing = matchingRecipes.map(recipe => {
       const missing = recipe.ingredients.filter(ing => 
         !ingredients.some((userIng: string) => 
@@ -234,7 +525,6 @@ app.post('/api/get-recipes', async (c) => {
       }
     })
     
-    // Sort by match score (fewer missing ingredients = higher score)
     recipesWithMissing.sort((a, b) => b.matchScore - a.matchScore)
     
     return c.json({
@@ -243,11 +533,13 @@ app.post('/api/get-recipes', async (c) => {
       count: recipesWithMissing.length
     })
   } catch (error) {
+    console.error('Error fetching recipes:', error)
     return c.json({ success: false, error: 'Failed to fetch recipes' }, 500)
   }
 })
 
-// Main page route
+// ==================== MAIN PAGE ====================
+
 app.get('/', (c) => {
   return c.html(`
     <!DOCTYPE html>
@@ -258,264 +550,78 @@ app.get('/', (c) => {
         <title>Smart Fridge & Culinary Assistant</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
-        <style>
-          body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        <link href="/static/styles.css" rel="stylesheet">
+        <script>
+          tailwind.config = {
+            theme: {
+              extend: {
+                animation: {
+                  'float': 'float 3s ease-in-out infinite',
+                  'slide-in-right': 'slideInRight 0.5s ease-out',
+                  'slide-in-left': 'slideInLeft 0.5s ease-out',
+                  'fade-in': 'fadeIn 0.5s ease-out',
+                  'bounce-slow': 'bounce 2s infinite',
+                  'pulse-slow': 'pulse 3s infinite',
+                  'shimmer': 'shimmer 2s infinite',
+                }
+              }
+            }
           }
-          .recipe-card {
-            transition: transform 0.2s, box-shadow 0.2s;
-          }
-          .recipe-card:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 8px 24px rgba(0,0,0,0.12);
-          }
-          .difficulty-easy { color: #10b981; }
-          .difficulty-medium { color: #f59e0b; }
-          .difficulty-hard { color: #ef4444; }
-          .step-card {
-            transition: all 0.3s;
-          }
-          .step-card.active {
-            border-color: #3b82f6;
-            background: #eff6ff;
-          }
-          .mobile-tab {
-            transition: all 0.2s;
-          }
-          .mobile-tab.active {
-            border-bottom: 3px solid #3b82f6;
-            color: #3b82f6;
-          }
-          @media (max-width: 768px) {
-            .mobile-hide { display: none; }
-          }
-        </style>
+        </script>
     </head>
-    <body class="bg-gray-50 min-h-screen">
-        <!-- Header -->
-        <header class="bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg">
-            <div class="container mx-auto px-4 py-4">
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center space-x-3">
-                        <i class="fas fa-utensils text-3xl"></i>
-                        <div>
-                            <h1 class="text-2xl font-bold">Smart Fridge</h1>
-                            <p class="text-sm text-blue-100">Culinary Assistant</p>
-                        </div>
-                    </div>
-                    <button id="shoppingListBtn" class="relative">
-                        <i class="fas fa-shopping-cart text-2xl"></i>
-                        <span id="cartCount" class="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center hidden">0</span>
-                    </button>
-                </div>
-            </div>
-        </header>
-
-        <!-- Mobile Navigation Tabs -->
-        <div class="md:hidden bg-white shadow-md sticky top-0 z-40">
-            <div class="flex">
-                <button class="mobile-tab active flex-1 py-3 text-center font-semibold" data-tab="scan">
-                    <i class="fas fa-camera mr-1"></i> Scan
-                </button>
-                <button class="mobile-tab flex-1 py-3 text-center font-semibold" data-tab="recipes">
-                    <i class="fas fa-book mr-1"></i> Recipes
-                </button>
-                <button class="mobile-tab flex-1 py-3 text-center font-semibold" data-tab="filters">
-                    <i class="fas fa-filter mr-1"></i> Filters
-                </button>
-            </div>
-        </div>
-
-        <div class="container mx-auto px-4 py-6 md:py-8">
-            <div class="flex flex-col md:flex-row gap-6">
-                <!-- Left Sidebar - Filters (Desktop) / Tab Content (Mobile) -->
-                <aside id="filterSection" class="w-full md:w-64 md:block">
-                    <div class="bg-white rounded-lg shadow-md p-4 md:p-6 sticky top-20">
-                        <h2 class="text-lg font-bold mb-4 flex items-center">
-                            <i class="fas fa-filter mr-2 text-blue-600"></i>
-                            Dietary Filters
-                        </h2>
-                        <div class="space-y-3">
-                            <label class="flex items-center space-x-2 cursor-pointer">
-                                <input type="checkbox" value="vegetarian" class="dietary-filter w-4 h-4 text-blue-600 rounded">
-                                <span class="text-sm">🥬 Vegetarian</span>
-                            </label>
-                            <label class="flex items-center space-x-2 cursor-pointer">
-                                <input type="checkbox" value="vegan" class="dietary-filter w-4 h-4 text-blue-600 rounded">
-                                <span class="text-sm">🌱 Vegan</span>
-                            </label>
-                            <label class="flex items-center space-x-2 cursor-pointer">
-                                <input type="checkbox" value="keto" class="dietary-filter w-4 h-4 text-blue-600 rounded">
-                                <span class="text-sm">🥑 Keto</span>
-                            </label>
-                            <label class="flex items-center space-x-2 cursor-pointer">
-                                <input type="checkbox" value="paleo" class="dietary-filter w-4 h-4 text-blue-600 rounded">
-                                <span class="text-sm">🥩 Paleo</span>
-                            </label>
-                            <label class="flex items-center space-x-2 cursor-pointer">
-                                <input type="checkbox" value="gluten-free" class="dietary-filter w-4 h-4 text-blue-600 rounded">
-                                <span class="text-sm">🌾 Gluten-Free</span>
-                            </label>
-                            <label class="flex items-center space-x-2 cursor-pointer">
-                                <input type="checkbox" value="low-carb" class="dietary-filter w-4 h-4 text-blue-600 rounded">
-                                <span class="text-sm">⚡ Low-Carb</span>
-                            </label>
-                        </div>
-                        <button id="clearFilters" class="mt-4 w-full py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm font-medium">
-                            Clear All
-                        </button>
-                    </div>
-                </aside>
-
-                <!-- Main Content Area -->
-                <main class="flex-1">
-                    <!-- Scan Section -->
-                    <section id="scanSection" class="bg-white rounded-lg shadow-md p-4 md:p-6 mb-6">
-                        <h2 class="text-xl font-bold mb-4 flex items-center">
-                            <i class="fas fa-camera mr-2 text-blue-600"></i>
-                            Scan Your Fridge
-                        </h2>
-                        <div class="text-center">
-                            <div id="uploadArea" class="border-3 border-dashed border-gray-300 rounded-lg p-8 md:p-12 cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-all">
-                                <i class="fas fa-cloud-upload-alt text-5xl md:text-6xl text-gray-400 mb-4"></i>
-                                <p class="text-gray-600 mb-2 text-sm md:text-base">Click to upload or take a photo of your fridge</p>
-                                <p class="text-gray-400 text-xs md:text-sm">Supports: JPG, PNG, HEIC</p>
-                                <input type="file" id="fridgeImageInput" accept="image/*" capture="environment" class="hidden">
-                            </div>
-                            <button id="scanBtn" class="mt-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 md:px-8 py-3 rounded-lg font-semibold shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm md:text-base">
-                                <i class="fas fa-search mr-2"></i>
-                                Analyze Ingredients
-                            </button>
-                        </div>
-                        
-                        <!-- Detected Ingredients -->
-                        <div id="ingredientsResult" class="mt-6 hidden">
-                            <h3 class="text-lg font-semibold mb-3 flex items-center">
-                                <i class="fas fa-check-circle mr-2 text-green-600"></i>
-                                Detected Ingredients
-                            </h3>
-                            <div id="ingredientsList" class="flex flex-wrap gap-2"></div>
-                        </div>
-                    </section>
-
-                    <!-- Recipe Results Section -->
-                    <section id="recipesSection" class="md:block">
-                        <div id="noRecipes" class="bg-white rounded-lg shadow-md p-8 md:p-12 text-center">
-                            <i class="fas fa-utensils text-5xl md:text-6xl text-gray-300 mb-4"></i>
-                            <h3 class="text-xl font-semibold text-gray-600 mb-2">No recipes yet</h3>
-                            <p class="text-gray-500 text-sm md:text-base">Scan your fridge to get personalized recipe suggestions</p>
-                        </div>
-                        
-                        <div id="recipesList" class="hidden grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6"></div>
-                    </section>
-                </main>
-            </div>
-        </div>
-
-        <!-- Cooking Mode Modal -->
-        <div id="cookingModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 overflow-y-auto">
-            <div class="min-h-screen px-4 py-8">
-                <div class="bg-white rounded-lg shadow-2xl max-w-3xl mx-auto">
-                    <div class="p-4 md:p-6 border-b flex justify-between items-center sticky top-0 bg-white z-10">
-                        <h2 id="recipeTitle" class="text-xl md:text-2xl font-bold">Recipe Name</h2>
-                        <button id="closeCookingMode" class="text-gray-500 hover:text-gray-700 text-2xl">
-                            <i class="fas fa-times"></i>
-                        </button>
-                    </div>
-                    
-                    <div class="p-4 md:p-6">
-                        <!-- Recipe Info -->
-                        <div class="mb-6 flex flex-wrap gap-4 text-sm">
-                            <div class="flex items-center">
-                                <i class="fas fa-clock mr-2 text-blue-600"></i>
-                                <span id="recipePrepTime"></span>
-                            </div>
-                            <div class="flex items-center">
-                                <i class="fas fa-fire mr-2 text-orange-600"></i>
-                                <span id="recipeCalories"></span>
-                            </div>
-                            <div class="flex items-center">
-                                <i class="fas fa-user-friends mr-2 text-green-600"></i>
-                                <span id="recipeServings"></span>
-                            </div>
-                        </div>
-                        
-                        <!-- Missing Ingredients Alert -->
-                        <div id="missingIngredientsAlert" class="hidden mb-6 bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded">
-                            <div class="flex justify-between items-start">
-                                <div class="flex-1">
-                                    <h4 class="font-semibold text-yellow-800 mb-2">Missing Ingredients:</h4>
-                                    <div id="missingIngredientsList" class="text-sm text-yellow-700"></div>
-                                </div>
-                                <button id="addToShoppingList" class="ml-4 bg-yellow-500 text-white px-4 py-2 rounded-lg hover:bg-yellow-600 text-sm whitespace-nowrap">
-                                    <i class="fas fa-plus mr-1"></i> Add to List
-                                </button>
-                            </div>
-                        </div>
-                        
-                        <!-- Step-by-Step Instructions -->
-                        <div class="mb-6">
-                            <div class="flex justify-between items-center mb-4">
-                                <h3 class="text-lg font-bold">Step-by-Step Instructions</h3>
-                                <button id="readAloudBtn" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm">
-                                    <i class="fas fa-volume-up mr-2"></i>
-                                    <span id="readAloudText">Read Aloud</span>
-                                </button>
-                            </div>
-                            
-                            <div id="stepsList" class="space-y-4"></div>
-                        </div>
-                        
-                        <!-- Navigation Buttons -->
-                        <div class="flex gap-4">
-                            <button id="prevStepBtn" class="flex-1 bg-gray-200 text-gray-700 py-3 rounded-lg font-semibold hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed">
-                                <i class="fas fa-arrow-left mr-2"></i> Previous
-                            </button>
-                            <button id="nextStepBtn" class="flex-1 bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
-                                Next <i class="fas fa-arrow-right ml-2"></i>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Shopping List Modal -->
-        <div id="shoppingListModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 overflow-y-auto">
-            <div class="min-h-screen px-4 py-8">
-                <div class="bg-white rounded-lg shadow-2xl max-w-2xl mx-auto">
-                    <div class="p-4 md:p-6 border-b flex justify-between items-center">
-                        <h2 class="text-xl md:text-2xl font-bold flex items-center">
-                            <i class="fas fa-shopping-cart mr-2 text-blue-600"></i>
-                            Shopping List
-                        </h2>
-                        <button id="closeShoppingList" class="text-gray-500 hover:text-gray-700 text-2xl">
-                            <i class="fas fa-times"></i>
-                        </button>
-                    </div>
-                    
-                    <div class="p-4 md:p-6">
-                        <div id="shoppingListEmpty" class="text-center py-12">
-                            <i class="fas fa-shopping-basket text-6xl text-gray-300 mb-4"></i>
-                            <p class="text-gray-500">Your shopping list is empty</p>
-                        </div>
-                        
-                        <div id="shoppingListContent" class="hidden">
-                            <ul id="shoppingListItems" class="space-y-2 mb-4"></ul>
-                            <button id="clearShoppingList" class="w-full py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 font-medium">
-                                <i class="fas fa-trash mr-2"></i> Clear All
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
+    <body class="bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 min-h-screen">
+        <div id="app"></div>
+        
         <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
         <script src="/static/app.js"></script>
     </body>
     </html>
   `)
 })
+
+// ==================== HELPER FUNCTIONS ====================
+
+async function getAuthenticatedUser(c: any) {
+  try {
+    const sessionToken = getCookie(c, 'session_token')
+    if (!sessionToken) return null
+    
+    const session = await c.env.DB.prepare(
+      'SELECT user_id, expires_at FROM sessions WHERE session_token = ?'
+    ).bind(sessionToken).first() as any
+    
+    if (!session || new Date(session.expires_at) < new Date()) {
+      return null
+    }
+    
+    const user = await c.env.DB.prepare(
+      'SELECT id, email, name, dietary_preferences FROM users WHERE id = ?'
+    ).bind(session.user_id).first() as any
+    
+    return user
+  } catch {
+    return null
+  }
+}
+
+async function hashPassword(password: string): Promise<string> {
+  // Simple hash for demo - in production use bcrypt or Web Crypto API
+  const encoder = new TextEncoder()
+  const data = encoder.encode(password + 'salt')
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+async function verifyPassword(password: string, hash: string): Promise<boolean> {
+  const newHash = await hashPassword(password)
+  return newHash === hash
+}
+
+function generateToken(): string {
+  const array = new Uint8Array(32)
+  crypto.getRandomValues(array)
+  return Array.from(array, b => b.toString(16).padStart(2, '0')).join('')
+}
 
 export default app
