@@ -351,25 +351,42 @@ function renderApp() {
               Scan Your Fridge
             </h2>
             <div class="text-center">
-              <div id="uploadArea" class="border-3 border-dashed border-purple-300 rounded-2xl p-8 md:p-12 cursor-pointer hover:border-purple-500 hover:bg-purple-50 transition-all relative overflow-hidden group">
-                <div class="absolute inset-0 bg-gradient-to-r from-purple-400 to-pink-400 opacity-0 group-hover:opacity-10 transition-opacity"></div>
-                <i class="fas fa-cloud-upload-alt text-5xl md:text-6xl text-purple-400 mb-4 animate-bounce-slow"></i>
-                <p class="text-gray-600 mb-2 text-sm md:text-base font-semibold">Click to upload or take a photo</p>
+              <!-- Image Preview Area -->
+              <div id="uploadArea" class="border-3 border-dashed border-purple-300 rounded-2xl p-8 md:p-12 transition-all relative overflow-hidden">
+                <i class="fas fa-images text-5xl md:text-6xl text-purple-400 mb-4 animate-bounce-slow"></i>
+                <p class="text-gray-600 mb-2 text-sm md:text-base font-semibold">Upload an image of your fridge</p>
                 <p class="text-gray-400 text-xs md:text-sm">Supports: JPG, PNG, HEIC</p>
-                <input type="file" id="fridgeImageInput" accept="image/*" capture="environment" class="hidden">
               </div>
-              <div class="flex flex-col sm:flex-row gap-3 mt-4">
-                <button onclick="analyzeFridge()" id="scanBtn" disabled
-                  class="flex-1 btn-shimmer bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 rounded-xl font-semibold shadow-lg hover:shadow-2xl transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm md:text-base">
-                  <i class="fas fa-search mr-2"></i>
-                  Analyze Ingredients
+              
+              <!-- Action Buttons -->
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
+                <button onclick="document.getElementById('fridgeImageInput').click()" 
+                  class="btn-shimmer bg-gradient-to-r from-purple-600 to-pink-600 text-white px-6 py-3 rounded-xl font-semibold shadow-lg hover:shadow-2xl transition-all text-sm md:text-base">
+                  <i class="fas fa-upload mr-2"></i>
+                  Choose Photo
+                </button>
+                <button onclick="document.getElementById('fridgeCameraInput').click()" 
+                  class="btn-shimmer bg-gradient-to-r from-blue-600 to-cyan-600 text-white px-6 py-3 rounded-xl font-semibold shadow-lg hover:shadow-2xl transition-all text-sm md:text-base">
+                  <i class="fas fa-camera mr-2"></i>
+                  Take Photo
                 </button>
                 <button onclick="openBarcodeScanner()" 
-                  class="flex-1 btn-shimmer bg-gradient-to-r from-green-600 to-emerald-600 text-white px-6 py-3 rounded-xl font-semibold shadow-lg hover:shadow-2xl transition-all text-sm md:text-base">
+                  class="btn-shimmer bg-gradient-to-r from-green-600 to-emerald-600 text-white px-6 py-3 rounded-xl font-semibold shadow-lg hover:shadow-2xl transition-all text-sm md:text-base">
                   <i class="fas fa-barcode mr-2"></i>
                   Scan Barcode
                 </button>
               </div>
+              
+              <!-- Hidden file inputs -->
+              <input type="file" id="fridgeImageInput" accept="image/*" class="hidden">
+              <input type="file" id="fridgeCameraInput" accept="image/*" capture="environment" class="hidden">
+              
+              <!-- Analyze Button -->
+              <button onclick="analyzeFridge()" id="scanBtn" disabled
+                class="mt-4 w-full btn-shimmer bg-gradient-to-r from-orange-600 to-red-600 text-white px-6 py-4 rounded-xl font-bold shadow-lg hover:shadow-2xl transition-all disabled:opacity-50 disabled:cursor-not-allowed text-base md:text-lg">
+                <i class="fas fa-magic mr-2"></i>
+                Analyze Ingredients with AI
+              </button>
             </div>
             
             <div id="ingredientsResult" class="mt-6 hidden animate-fade-in">
@@ -554,13 +571,9 @@ function renderApp() {
 }
 
 function attachEventListeners() {
-  // Upload area
-  document.getElementById('uploadArea')?.addEventListener('click', () => {
-    document.getElementById('fridgeImageInput').click()
-  })
-  
-  // File input
+  // File inputs - both gallery and camera
   document.getElementById('fridgeImageInput')?.addEventListener('change', handleImageUpload)
+  document.getElementById('fridgeCameraInput')?.addEventListener('change', handleImageUpload)
   
   // Dietary filters
   document.querySelectorAll('.dietary-filter').forEach(filter => {
@@ -711,13 +724,18 @@ function renderRecipes(recipes) {
               <h3 class="text-xl font-bold mb-2 gradient-text">${recipe.name}</h3>
             </div>
             <div class="flex flex-col gap-2">
+              ${recipe.matchPercentage ? `
+                <span class="bg-gradient-to-r ${recipe.matchPercentage >= 80 ? 'from-green-400 to-emerald-500' : recipe.matchPercentage >= 50 ? 'from-blue-400 to-cyan-500' : 'from-yellow-400 to-orange-400'} text-white text-xs px-3 py-1 rounded-full shadow-lg font-bold">
+                  ${Math.round(recipe.matchPercentage)}% Match
+                </span>
+              ` : ''}
               ${recipe.missingIngredients.length > 0 ? `
-                <span class="bg-gradient-to-r from-yellow-400 to-orange-400 text-white text-xs px-3 py-1 rounded-full shadow-lg badge-animate">
+                <span class="bg-gradient-to-r from-red-400 to-pink-400 text-white text-xs px-3 py-1 rounded-full shadow-lg badge-animate">
                   ${recipe.missingIngredients.length} missing
                 </span>
               ` : `
                 <span class="bg-gradient-to-r from-green-400 to-emerald-500 text-white text-xs px-3 py-1 rounded-full shadow-lg">
-                  <i class="fas fa-check mr-1"></i>Complete
+                  <i class="fas fa-check mr-1"></i>All Ingredients
                 </span>
               `}
               ${isSaved ? `

@@ -490,47 +490,74 @@ app.post('/api/get-recipes', async (c) => {
       }
     ]
     
-    // Filter recipes
-    const matchingRecipes = allRecipes.filter(recipe => {
-      const hasIngredients = recipe.ingredients.some(ing => 
-        ingredients.some((userIng: string) => 
-          userIng.toLowerCase().includes(ing.toLowerCase()) || 
-          ing.toLowerCase().includes(userIng.toLowerCase())
-        )
+    // Calculate match scores and filter recipes
+    const recipesWithScores = allRecipes.map(recipe => {
+      // Count how many recipe ingredients the user has
+      const matchedIngredients = recipe.ingredients.filter(ing => 
+        ingredients.some((userIng: string) => {
+          const recipeIngLower = ing.toLowerCase()
+          const userIngLower = userIng.toLowerCase()
+          // Check for exact matches or partial matches
+          return recipeIngLower === userIngLower || 
+                 recipeIngLower.includes(userIngLower) || 
+                 userIngLower.includes(recipeIngLower)
+        })
       )
       
-      if (allFilters && allFilters.length > 0) {
-        const matchesDiet = allFilters.some((diet: string) => 
-          recipe.dietary.includes(diet.toLowerCase())
-        )
-        return hasIngredients && matchesDiet
-      }
-      
-      return hasIngredients
-    })
-    
-    // Calculate missing ingredients
-    const recipesWithMissing = matchingRecipes.map(recipe => {
+      // Calculate missing ingredients
       const missing = recipe.ingredients.filter(ing => 
-        !ingredients.some((userIng: string) => 
-          userIng.toLowerCase().includes(ing.toLowerCase()) || 
-          ing.toLowerCase().includes(userIng.toLowerCase())
-        )
+        !ingredients.some((userIng: string) => {
+          const recipeIngLower = ing.toLowerCase()
+          const userIngLower = userIng.toLowerCase()
+          return recipeIngLower === userIngLower || 
+                 recipeIngLower.includes(userIngLower) || 
+                 userIngLower.includes(recipeIngLower)
+        })
       )
+      
+      // Calculate match percentage
+      const matchPercentage = (matchedIngredients.length / recipe.ingredients.length) * 100
+      const matchScore = matchedIngredients.length
       
       return {
         ...recipe,
         missingIngredients: missing,
-        matchScore: recipe.ingredients.length - missing.length
+        matchScore: matchScore,
+        matchPercentage: matchPercentage,
+        matchedCount: matchedIngredients.length
       }
     })
     
-    recipesWithMissing.sort((a, b) => b.matchScore - a.matchScore)
+    // IMPORTANT: Only show recipes where user has at least 50% of ingredients
+    // OR recipes with 3 or fewer missing ingredients
+    let matchingRecipes = recipesWithScores.filter(recipe => {
+      const hasMinimumMatch = recipe.matchPercentage >= 50 || recipe.missingIngredients.length <= 3
+      
+      // Apply dietary filters if specified
+      if (allFilters && allFilters.length > 0) {
+        const matchesDiet = allFilters.some((diet: string) => 
+          recipe.dietary.includes(diet.toLowerCase())
+        )
+        return hasMinimumMatch && matchesDiet
+      }
+      
+      return hasMinimumMatch
+    })
+    
+    // Sort by match score (higher = better match)
+    matchingRecipes.sort((a, b) => {
+      // First prioritize by match percentage
+      if (b.matchPercentage !== a.matchPercentage) {
+        return b.matchPercentage - a.matchPercentage
+      }
+      // Then by number of matched ingredients
+      return b.matchScore - a.matchScore
+    })
     
     return c.json({
       success: true,
-      recipes: recipesWithMissing,
-      count: recipesWithMissing.length
+      recipes: matchingRecipes,
+      count: matchingRecipes.length
     })
   } catch (error) {
     console.error('Error fetching recipes:', error)
