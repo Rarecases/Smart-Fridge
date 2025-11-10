@@ -8,6 +8,12 @@ let speechSynthesis = window.speechSynthesis
 let isSpeaking = false
 let shoppingList = []
 let savedRecipeIds = []
+let userAvatar = 'chef1'
+let cookingHistory = []
+let userStats = null
+let html5QrcodeScanner = null
+let cookingStartTime = null
+let stepTimers = {}
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', () => {
@@ -257,9 +263,17 @@ function renderApp() {
               <p class="text-sm text-white/80">AI Culinary Assistant</p>
             </div>
           </div>
-          <div class="flex items-center space-x-4 animate-slide-in-right">
+          <div class="flex items-center space-x-3 animate-slide-in-right">
+            <button onclick="showCookingHistory()" class="relative group hidden md:block">
+              <i class="fas fa-history text-2xl text-white hover:scale-110 transition-transform"></i>
+            </button>
+            <button onclick="showAvatarSelection()" class="relative group">
+              <div class="avatar-ring w-10 h-10 rounded-full bg-white/20 flex items-center justify-center current-avatar-display text-2xl">
+                👨‍🍳
+              </div>
+            </button>
             <button onclick="showProfile()" class="relative group">
-              <div class="avatar-ring w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
+              <div class="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
                 <i class="fas fa-user text-white"></i>
               </div>
             </button>
@@ -344,11 +358,18 @@ function renderApp() {
                 <p class="text-gray-400 text-xs md:text-sm">Supports: JPG, PNG, HEIC</p>
                 <input type="file" id="fridgeImageInput" accept="image/*" capture="environment" class="hidden">
               </div>
-              <button onclick="analyzeFridge()" id="scanBtn" disabled
-                class="mt-4 btn-shimmer bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 md:px-8 py-3 rounded-xl font-semibold shadow-lg hover:shadow-2xl transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm md:text-base">
-                <i class="fas fa-search mr-2"></i>
-                Analyze Ingredients
-              </button>
+              <div class="flex flex-col sm:flex-row gap-3 mt-4">
+                <button onclick="analyzeFridge()" id="scanBtn" disabled
+                  class="flex-1 btn-shimmer bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 rounded-xl font-semibold shadow-lg hover:shadow-2xl transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm md:text-base">
+                  <i class="fas fa-search mr-2"></i>
+                  Analyze Ingredients
+                </button>
+                <button onclick="openBarcodeScanner()" 
+                  class="flex-1 btn-shimmer bg-gradient-to-r from-green-600 to-emerald-600 text-white px-6 py-3 rounded-xl font-semibold shadow-lg hover:shadow-2xl transition-all text-sm md:text-base">
+                  <i class="fas fa-barcode mr-2"></i>
+                  Scan Barcode
+                </button>
+              </div>
             </div>
             
             <div id="ingredientsResult" class="mt-6 hidden animate-fade-in">
@@ -507,6 +528,10 @@ function renderApp() {
   attachEventListeners()
   updateShoppingListUI()
   
+  // Load user stats and history
+  loadUserStats()
+  loadCookingHistory()
+  
   // Pre-fill dietary filters from user preferences
   if (user && user.dietaryPreferences) {
     const prefs = user.dietaryPreferences.split(',').map(p => p.trim())
@@ -515,6 +540,17 @@ function renderApp() {
       if (checkbox) checkbox.checked = true
     })
   }
+  
+  // Update avatar display
+  setTimeout(() => {
+    const currentAvatar = avatars.find(a => a.id === userAvatar)
+    if (currentAvatar) {
+      const avatarDisplays = document.querySelectorAll('.current-avatar-display')
+      avatarDisplays.forEach(display => {
+        display.textContent = currentAvatar.emoji
+      })
+    }
+  }, 100)
 }
 
 function attachEventListeners() {

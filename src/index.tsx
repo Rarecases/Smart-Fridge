@@ -538,6 +538,235 @@ app.post('/api/get-recipes', async (c) => {
   }
 })
 
+// ==================== BARCODE SCANNING ====================
+
+// Scan barcode and get product info
+app.post('/api/barcode/scan', async (c) => {
+  try {
+    const user = await getAuthenticatedUser(c)
+    if (!user) {
+      return c.json({ success: false, error: 'Not authenticated' }, 401)
+    }
+    
+    const { barcode } = await c.req.json()
+    
+    if (!barcode) {
+      return c.json({ success: false, error: 'Barcode required' }, 400)
+    }
+    
+    // Call Open Food Facts API for product information
+    const response = await fetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`)
+    const data = await response.json() as any
+    
+    if (data.status === 1 && data.product) {
+      const product = data.product
+      
+      // Save to database
+      await c.env.DB.prepare(
+        `INSERT INTO scanned_products (user_id, barcode, product_name, brand, ingredients, nutritional_info, allergens, expiry_date) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        user.id,
+        barcode,
+        product.product_name || 'Unknown Product',
+        product.brands || '',
+        product.ingredients_text || '',
+        JSON.stringify(product.nutriments || {}),
+        product.allergens || '',
+        ''
+      ).run()
+      
+      return c.json({
+        success: true,
+        product: {
+          name: product.product_name,
+          brand: product.brands,
+          ingredients: product.ingredients_text,
+          image: product.image_url,
+          nutritionalInfo: product.nutriments,
+          allergens: product.allergens_tags || [],
+          categories: product.categories_tags || []
+        }
+      })
+    } else {
+      return c.json({
+        success: false,
+        error: 'Product not found',
+        message: 'Try entering product details manually'
+      }, 404)
+    }
+  } catch (error) {
+    console.error('Barcode scan error:', error)
+    return c.json({ success: false, error: 'Failed to scan barcode' }, 500)
+  }
+})
+
+// Get scanned products history
+app.get('/api/barcode/history', async (c) => {
+  try {
+    const user = await getAuthenticatedUser(c)
+    if (!user) {
+      return c.json({ success: false, error: 'Not authenticated' }, 401)
+    }
+    
+    const products = await c.env.DB.prepare(
+      'SELECT * FROM scanned_products WHERE user_id = ? ORDER BY scanned_at DESC LIMIT 50'
+    ).bind(user.id).all()
+    
+    return c.json({
+      success: true,
+      products: products.results
+    })
+  } catch (error) {
+    return c.json({ success: false, error: 'Failed to get history' }, 500)
+  }
+})
+
+// ==================== COOKING HISTORY ====================
+
+// Save cooking session
+app.post('/api/cooking/complete', async (c) => {
+  try {
+    const user = await getAuthenticatedUser(c)
+    if (!user) {
+      return c.json({ success: false, error: 'Not authenticated' }, 401)
+    }
+    
+    const { recipeId, recipeName, recipeImage, cookingTimeMinutes, rating, notes } = await c.req.json()
+    
+    // Save to history
+    await c.env.DB.prepare(
+      `INSERT INTO cooking_history (user_id, recipe_id, recipe_name, recipe_image, completed, cooking_time_minutes, rating, notes) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(user.id, recipeId, recipeName, recipeImage, 1, cookingTimeMinutes || 0, rating || 0, notes || '').run()
+    
+    // Update user stats
+    await c.env.DB.prepare(
+      'UPDATE users SET total_recipes_cooked = total_recipes_cooked + 1 WHERE id = ?'
+    ).bind(user.id).run()
+    
+    // Check for achievements
+    const totalCooked = await c.env.DB.prepare(
+      'SELECT total_recipes_cooked FROM users WHERE id = ?'
+    ).bind(user.id).first() as any
+    
+    const achievements = []
+    
+    if (totalCooked.total_recipes_cooked === 1) {
+      achievements.push({
+        type: 'first_cook',
+        name: 'First Recipe!',
+        icon: '🎉'
+      })
+    } else if (totalCooked.total_recipes_cooked === 5) {
+      achievements.push({
+        type: 'five_recipes',
+        name: 'Home Chef',
+        icon: '👨‍🍳'
+      })
+    } else if (totalCooked.total_recipes_cooked === 10) {
+      achievements.push({
+        type: 'ten_recipes',
+        name: 'Cooking Master',
+        icon: '⭐'
+      })
+    }
+    
+    // Save achievements
+    for (const achievement of achievements) {
+      await c.env.DB.prepare(
+        'INSERT INTO achievements (user_id, achievement_type, achievement_name, achievement_icon) VALUES (?, ?, ?, ?)'
+      ).bind(user.id, achievement.type, achievement.name, achievement.icon).run()
+    }
+    
+    return c.json({
+      success: true,
+      achievements,
+      totalCooked: totalCooked.total_recipes_cooked
+    })
+  } catch (error) {
+    console.error('Error saving cooking session:', error)
+    return c.json({ success: false, error: 'Failed to save cooking session' }, 500)
+  }
+})
+
+// Get cooking history
+app.get('/api/cooking/history', async (c) => {
+  try {
+    const user = await getAuthenticatedUser(c)
+    if (!user) {
+      return c.json({ success: false, error: 'Not authenticated' }, 401)
+    }
+    
+    const history = await c.env.DB.prepare(
+      'SELECT * FROM cooking_history WHERE user_id = ? ORDER BY cooked_at DESC LIMIT 50'
+    ).bind(user.id).all()
+    
+    return c.json({
+      success: true,
+      history: history.results
+    })
+  } catch (error) {
+    return c.json({ success: false, error: 'Failed to get history' }, 500)
+  }
+})
+
+// Get user stats
+app.get('/api/user/stats', async (c) => {
+  try {
+    const user = await getAuthenticatedUser(c)
+    if (!user) {
+      return c.json({ success: false, error: 'Not authenticated' }, 401)
+    }
+    
+    const userStats = await c.env.DB.prepare(
+      'SELECT total_recipes_cooked, current_streak, best_streak, avatar FROM users WHERE id = ?'
+    ).bind(user.id).first() as any
+    
+    const achievements = await c.env.DB.prepare(
+      'SELECT * FROM achievements WHERE user_id = ? ORDER BY unlocked_at DESC'
+    ).bind(user.id).all()
+    
+    const recentHistory = await c.env.DB.prepare(
+      'SELECT * FROM cooking_history WHERE user_id = ? ORDER BY cooked_at DESC LIMIT 5'
+    ).bind(user.id).all()
+    
+    return c.json({
+      success: true,
+      stats: {
+        totalRecipesCooked: userStats.total_recipes_cooked || 0,
+        currentStreak: userStats.current_streak || 0,
+        bestStreak: userStats.best_streak || 0,
+        avatar: userStats.avatar || 'chef1'
+      },
+      achievements: achievements.results,
+      recentHistory: recentHistory.results
+    })
+  } catch (error) {
+    return c.json({ success: false, error: 'Failed to get stats' }, 500)
+  }
+})
+
+// Update user avatar
+app.post('/api/user/avatar', async (c) => {
+  try {
+    const user = await getAuthenticatedUser(c)
+    if (!user) {
+      return c.json({ success: false, error: 'Not authenticated' }, 401)
+    }
+    
+    const { avatar } = await c.req.json()
+    
+    await c.env.DB.prepare(
+      'UPDATE users SET avatar = ? WHERE id = ?'
+    ).bind(avatar, user.id).run()
+    
+    return c.json({ success: true })
+  } catch (error) {
+    return c.json({ success: false, error: 'Failed to update avatar' }, 500)
+  }
+})
+
 // ==================== MAIN PAGE ====================
 
 app.get('/', (c) => {
@@ -573,6 +802,8 @@ app.get('/', (c) => {
         <div id="app"></div>
         
         <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+        <script type="module" src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+        <script src="/static/features.js"></script>
         <script src="/static/app.js"></script>
     </body>
     </html>
